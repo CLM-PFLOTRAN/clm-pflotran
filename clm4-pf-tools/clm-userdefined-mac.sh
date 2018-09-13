@@ -71,30 +71,29 @@
 #
 #    - setup the user defined machine:
 #
-#      clm-mac-workstation.sh -d /path/to/cesm-inputdata -c ${CASE_DIR} -s configure
+#      clm-userdefined-mac.sh -d /path/to/cesm-inputdata -c ${CASE_DIR} -s configure
 #
 ################################################################################
 
+#!/bin/bash
+
 ################################################################################
 #
-# Hard coded paths assuming macports
+# Read configuration file
 #
 ################################################################################
-CC=/usr/bin/clang
-CXX=/usr/bin/clang++
-FC=/opt/local/bin/gfortran-mp-4.7
-MPICC=/opt/local/bin/mpicc
-MPICXX=/opt/local/bin/mpicxx
-MPIFC=/opt/local/bin/mpif90
-MPIEXEC=/opt/local/bin/mpirun
-MPI_VENDOR=mpich
+config_read_file() {
+  (grep -E "^${2}=" -m 1 "${1}" 2>/dev/null || echo "VAR=__UNDEFINED__") \
+    | head -n 1 | cut -d '=' -f 2-
+}
 
-FFLAGS="-fno-range-check"
-SLIBS="-L/opt/local/lib -lnetcdff -L/opt/local/lib -lnetcdf"
-NETCDF_PATH="/opt/local"
-BLAS_FLAGS="-framework Accelerate"
-
-
+config_get() {
+  val="$(config_read_file "$MACHINE_CONFIG_FILE" "${1}")"
+  if [ "${val}" = "__UNDEFINED__" ]; then
+    val="$2"
+  fi
+  printf -- "%s" "${val}"
+}
 
 ################################################################################
 #
@@ -166,6 +165,89 @@ function clobber_step() {
     ./cesm_setup -clean
     rm -rf bld
     rm -rf run
+}
+
+
+################################################################################
+#
+# reads machine configuration file
+#
+################################################################################
+function read_machine_cfg(){
+
+CC="$(config_get CC)"
+CXX="$(config_get CXX)"
+FC="$(config_get FC)"
+MPICC="$(config_get MPICC)"
+MPICXX="$(config_get MPICXX)"
+MPIFC="$(config_get MPIFC)"
+MPIEXEC="$(config_get MPIEXEC)"
+FFLAGS="$(config_get FFLAGS)"
+SLIBS="$(config_get SLIBS)"
+NETCDF_PATH="$(config_get NETCDF_PATH)"
+BLAS_FLAGS="$(config_get BLAS_FLAGS)"
+MPI_VENDOR="$(config_get MPI_VENDOR)"
+
+if [ -z "${CC}" ]; then
+    echo "ERROR: CC must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${CXX}" ]; then
+    echo "ERROR: CXX must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${FC}" ]; then
+    echo "ERROR: CC must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${MPICC}" ]; then
+    echo "ERROR: MPICC must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${MPICXX}" ]; then
+    echo "ERROR: MPICXX must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${MPIFC}" ]; then
+    echo "ERROR: MPIFC must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${MPIEXEC}" ]; then
+    echo "ERROR: MPIEXEC must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${FFLAGS}" ]; then
+    echo "ERROR: FFLAGS must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${SLIBS}" ]; then
+    echo "ERROR: SLIBS must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${NETCDF_PATH}" ]; then
+    echo "ERROR: NETCDF_PATH must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${BLAS_FLAGS}" ]; then
+    echo "ERROR: BLAS_FLAGS must be defined in the machine configuration file"
+    exit
+fi
+
+if [ -z "${MPI_VENDOR}" ]; then
+    echo "ERROR: MPI_VENDOR must be defined in the machine configuration file"
+    exit
+fi
+
 }
 
 ################################################################################
@@ -368,8 +450,6 @@ ifeq (\$(MODEL), driver)
    LDFLAGS += ${_user_ldflags}
    # mac os blas/lapack
    LDFLAGS += ${BLAS_FLAGS}
-   # NOTE(bandre): ugly hack to get around linking error...
-   LDFLAGS += ${CASE_DIR}/bld/lib/libice.a
 endif
 
 EOF
@@ -403,6 +483,7 @@ Usage: $0 [options]
     -d DATA_DIR     cesm input data directory
     -h              print this help message
     -m FILENAME     link to existing macros file instead of generating
+    -M FILENAME     machine configuration file
     -n NP           number of mpi processors
     -o FILENAME     over write existing file FILENAME
     -p              add petsc/pflotran info to Macros
@@ -458,13 +539,15 @@ MACRO_FILE=
 NP=2
 LINK_PFLOTRAN=
 OVERWRITE=
-while getopts "c:d:hm:n:o:ps:" FLAG
+MACHINE_CONFIG_FILE=
+while getopts "c:d:hm:M:n:o:ps:" FLAG
 do
   case ${FLAG} in
     c) CASE_DIR=${OPTARG};;
     d) DATA_DIR=${OPTARG};;
     h) usage; exit;;
     m) MACRO_FILE=${OPTARG};;
+    M) MACHINE_CONFIG_FILE=${OPTARG};;
     n) NP=${OPTARG};;
     o) OVERWRITE=${OPTARG};;
     p) LINK_PFLOTRAN=1;;
@@ -486,6 +569,14 @@ fi
 if [ ! -z ${LINK_PFLOTRAN} ]; then
     check_pflotran
 fi
+
+if [ -z "${MACHINE_CONFIG_FILE}" ]; then
+    echo "ERROR: The machine configuration file must be provided on the command line."
+    exit
+else
+    read_machine_cfg
+fi
+
 
 DATA_DIR=$(abspath ${DATA_DIR})
 CASE_DIR=$(abspath ${CASE_DIR})
